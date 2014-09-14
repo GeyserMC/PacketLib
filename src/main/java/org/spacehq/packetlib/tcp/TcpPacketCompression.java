@@ -31,7 +31,7 @@ public class TcpPacketCompression extends ByteToMessageCodec<ByteBuf> {
 		ByteBufNetOutput output = new ByteBufNetOutput(out);
 		if(readable < this.session.getCompressionThreshold()) {
 			output.writeVarInt(0);
-			out.writeBytes(in);
+			output.writeBytes(in);
 		} else {
 			byte[] bytes = new byte[readable];
 			in.readBytes(bytes);
