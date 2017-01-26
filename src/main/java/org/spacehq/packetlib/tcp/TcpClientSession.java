@@ -44,7 +44,7 @@ public class TcpClientSession extends TcpSession {
                 this.group = new OioEventLoopGroup();
                 bootstrap.channelFactory(new ProxyOioChannelFactory(this.proxy));
             } else {
-                this.group = new NioEventLoopGroup();
+                this.group = new NioEventLoopGroup(1);
                 bootstrap.channel(NioSocketChannel.class);
             }
 
