@@ -4,8 +4,12 @@ import com.github.steveice10.packetlib.Client;
 import com.github.steveice10.packetlib.Server;
 import com.github.steveice10.packetlib.Session;
 import com.github.steveice10.packetlib.crypt.PacketEncryption;
+import org.jetbrains.annotations.Nullable;
+import sun.misc.Unsafe;
 
+import java.io.File;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -14,6 +18,25 @@ import java.util.Map;
  * All implementations must have a no-params constructor for server protocol creation.
  */
 public abstract class PacketProtocol {
+
+    @Nullable
+    private static final Unsafe UNSAFE;
+
+    static {
+        Unsafe unsafe = null;
+
+        try {
+            Field field = Unsafe.class.getDeclaredField("theUnsafe");
+            field.setAccessible(true);
+            unsafe = (Unsafe) field.get(null);
+        } catch (NoSuchFieldException | IllegalAccessException e) {
+            e.printStackTrace();
+        }
+
+        UNSAFE = unsafe;
+
+    }
+
     private final Map<Integer, Class<? extends Packet>> incoming = new HashMap<>();
     private final Map<Class<? extends Packet>, Integer> outgoing = new HashMap<>();
 
@@ -118,19 +141,26 @@ public abstract class PacketProtocol {
         if (packet == null) {
             throw new IllegalArgumentException("Invalid packet id: " + id);
         }
+        if (UNSAFE == null) {
+            try {
+                Constructor<? extends Packet> constructor = packet.getDeclaredConstructor();
+                if (!constructor.isAccessible()) {
+                    constructor.setAccessible(true);
+                }
 
-        try {
-            Constructor<? extends Packet> constructor = packet.getDeclaredConstructor();
-            if(!constructor.isAccessible()) {
-                constructor.setAccessible(true);
+                return constructor.newInstance();
+            } catch (NoSuchMethodError e) {
+                throw new IllegalStateException("Packet \"" + id + ", " + packet.getName() + "\" does not have a no-params constructor for instantiation.");
+            } catch (Exception e) {
+                throw new IllegalStateException("Failed to instantiate packet \"" + id + ", " + packet.getName() + "\".", e);
             }
-
-            return constructor.newInstance();
-        } catch(NoSuchMethodError e) {
-            throw new IllegalStateException("Packet \"" + id + ", " + packet.getName() + "\" does not have a no-params constructor for instantiation.");
-        } catch(Exception e) {
-            throw new IllegalStateException("Failed to instantiate packet \"" + id + ", " + packet.getName() + "\".", e);
+        }else {
+            try {
+                return (Packet) UNSAFE.allocateInstance(packet);
+            } catch (InstantiationException ignored) {
+            }
         }
+        throw new IllegalStateException("Failed to allocate instance.");
     }
 
     /**
