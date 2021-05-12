@@ -5,15 +5,10 @@ import com.github.steveice10.packetlib.ProxyInfo;
 import com.github.steveice10.packetlib.packet.PacketProtocol;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
-import io.netty.channel.AddressedEnvelope;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.channel.ChannelInitializer;
-import io.netty.channel.ChannelOption;
-import io.netty.channel.ChannelPipeline;
-import io.netty.channel.EventLoopGroup;
+import io.netty.channel.*;
+import io.netty.channel.epoll.Epoll;
+import io.netty.channel.epoll.EpollEventLoopGroup;
+import io.netty.channel.epoll.EpollSocketChannel;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
@@ -41,12 +36,22 @@ import java.net.UnknownHostException;
 
 public class TcpClientSession extends TcpSession {
     private static final String IP_REGEX = "\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b";
+    private static final Class<? extends Channel> CHANNEL_CLASS;
+    private static final EventLoopGroup EVENT_LOOP_GROUP;
 
-    private String bindAddress;
-    private int bindPort;
-    private ProxyInfo proxy;
+    static {
+        if (Epoll.isAvailable()) {
+            CHANNEL_CLASS = EpollSocketChannel.class;
+            EVENT_LOOP_GROUP = new EpollEventLoopGroup();
+        } else {
+            CHANNEL_CLASS = NioSocketChannel.class;
+            EVENT_LOOP_GROUP = new NioEventLoopGroup();
+        }
+    }
 
-    private EventLoopGroup group;
+    private final String bindAddress;
+    private final int bindPort;
+    private final ProxyInfo proxy;
 
     public TcpClientSession(String host, int port, PacketProtocol protocol) {
         this(host, port, protocol, null);
@@ -71,22 +76,27 @@ public class TcpClientSession extends TcpSession {
     public void connect(boolean wait) {
         if(this.disconnected) {
             throw new IllegalStateException("Session has already been disconnected.");
-        } else if(this.group != null) {
-            return;
         }
 
-        try {
-            this.group = new NioEventLoopGroup();
+        boolean debug = getFlag(BuiltinFlags.PRINT_DEBUG, false);
 
+        try {
             final Bootstrap bootstrap = new Bootstrap();
-            bootstrap.channel(NioSocketChannel.class);
+            bootstrap.channel(CHANNEL_CLASS);
             bootstrap.handler(new ChannelInitializer<Channel>() {
                 @Override
                 public void initChannel(Channel channel) {
                     getPacketProtocol().newClientSession(TcpClientSession.this);
 
                     channel.config().setOption(ChannelOption.IP_TOS, 0x18);
-                    channel.config().setOption(ChannelOption.TCP_NODELAY, false);
+                    try {
+                        channel.config().setOption(ChannelOption.TCP_NODELAY, true);
+                    } catch (ChannelException e) {
+                        if(debug) {
+                            System.out.println("Exception while trying to set TCP_NODELAY");
+                            e.printStackTrace();
+                        }
+                    }
 
                     ChannelPipeline pipeline = channel.pipeline();
 
@@ -102,7 +112,7 @@ public class TcpClientSession extends TcpSession {
 
                     addHAProxySupport(pipeline);
                 }
-            }).group(this.group).option(ChannelOption.CONNECT_TIMEOUT_MILLIS, getConnectTimeout() * 1000);
+            }).group(EVENT_LOOP_GROUP).option(ChannelOption.CONNECT_TIMEOUT_MILLIS, getConnectTimeout() * 1000);
 
             Runnable connectTask = () -> {
                 try {
@@ -146,7 +156,7 @@ public class TcpClientSession extends TcpSession {
             DnsNameResolver resolver = null;
             AddressedEnvelope<DnsResponse, InetSocketAddress> envelope = null;
             try {
-                resolver = new DnsNameResolverBuilder(this.group.next())
+                resolver = new DnsNameResolverBuilder(EVENT_LOOP_GROUP.next())
                         .channelType(NioDatagramChannel.class)
                         .build();
                 envelope = resolver.query(new DefaultDnsQuestion(name, DnsRecordType.SRV)).get();
@@ -268,9 +278,5 @@ public class TcpClientSession extends TcpSession {
     @Override
     public void disconnect(String reason, Throwable cause) {
         super.disconnect(reason, cause);
-        if(this.group != null) {
-            this.group.shutdownGracefully();
-            this.group = null;
-        }
     }
 }

@@ -5,15 +5,13 @@ import com.github.steveice10.packetlib.BuiltinFlags;
 import com.github.steveice10.packetlib.Server;
 import com.github.steveice10.packetlib.packet.PacketProtocol;
 import io.netty.bootstrap.ServerBootstrap;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelFutureListener;
-import io.netty.channel.ChannelInitializer;
-import io.netty.channel.ChannelOption;
-import io.netty.channel.ChannelPipeline;
-import io.netty.channel.EventLoopGroup;
+import io.netty.channel.*;
+import io.netty.channel.epoll.Epoll;
+import io.netty.channel.epoll.EpollServerSocketChannel;
+import io.netty.channel.epoll.EpollSocketChannel;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.GenericFutureListener;
 
@@ -37,9 +35,22 @@ public class TcpServer extends AbstractServer {
         if(this.group != null || this.channel != null) {
             return;
         }
+        boolean debug = getGlobalFlag(BuiltinFlags.PRINT_DEBUG, false);
 
         this.group = new NioEventLoopGroup();
-        ChannelFuture future = new ServerBootstrap().channel(NioServerSocketChannel.class).childHandler(new ChannelInitializer<Channel>() {
+        Class<? extends ServerChannel> channelClass;
+        if (Epoll.isAvailable()) {
+            channelClass = EpollServerSocketChannel.class;
+        } else {
+            if(debug) {
+                System.out.println("[PacketLib] Not using Epoll: " + Epoll.unavailabilityCause().getMessage());
+            }
+            channelClass = NioServerSocketChannel.class;
+        }
+        if(debug) {
+            System.out.println("[PacketLib] Channel class: " + channelClass.getName());
+        }
+        ChannelFuture future = new ServerBootstrap().channel(channelClass).childHandler(new ChannelInitializer<Channel>() {
             @Override
             public void initChannel(Channel channel) throws Exception {
                 InetSocketAddress address = (InetSocketAddress) channel.remoteAddress();
@@ -49,7 +60,10 @@ public class TcpServer extends AbstractServer {
                 session.getPacketProtocol().newServerSession(TcpServer.this, session);
 
                 channel.config().setOption(ChannelOption.IP_TOS, 0x18);
-                channel.config().setOption(ChannelOption.TCP_NODELAY, false);
+                try {
+                    channel.config().setOption(ChannelOption.TCP_NODELAY, true);
+                } catch (ChannelException ignored) {
+                }
 
                 ChannelPipeline pipeline = channel.pipeline();
 
