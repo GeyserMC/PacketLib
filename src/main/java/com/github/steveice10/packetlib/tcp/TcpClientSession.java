@@ -9,6 +9,9 @@ import io.netty.channel.*;
 import io.netty.channel.epoll.Epoll;
 import io.netty.channel.epoll.EpollEventLoopGroup;
 import io.netty.channel.epoll.EpollSocketChannel;
+import io.netty.channel.kqueue.KQueue;
+import io.netty.channel.kqueue.KQueueEventLoopGroup;
+import io.netty.channel.kqueue.KQueueSocketChannel;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
@@ -40,9 +43,14 @@ public class TcpClientSession extends TcpSession {
     private static final EventLoopGroup EVENT_LOOP_GROUP;
 
     static {
-        if (Epoll.isAvailable()) {
+        boolean disableNative = System.getProperties().contains("disableNativeEventLoop");
+
+        if (!disableNative && Epoll.isAvailable()) {
             CHANNEL_CLASS = EpollSocketChannel.class;
             EVENT_LOOP_GROUP = new EpollEventLoopGroup();
+        } else if (!disableNative && KQueue.isAvailable()) {
+            CHANNEL_CLASS = KQueueSocketChannel.class;
+            EVENT_LOOP_GROUP = new KQueueEventLoopGroup();
         } else {
             CHANNEL_CLASS = NioSocketChannel.class;
             EVENT_LOOP_GROUP = new NioEventLoopGroup();
