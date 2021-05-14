@@ -12,6 +12,8 @@ import io.netty.channel.epoll.EpollSocketChannel;
 import io.netty.channel.kqueue.KQueue;
 import io.netty.channel.kqueue.KQueueEventLoopGroup;
 import io.netty.channel.kqueue.KQueueSocketChannel;
+import io.netty.channel.local.LocalAddress;
+import io.netty.channel.local.LocalChannel;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
@@ -32,15 +34,13 @@ import io.netty.handler.proxy.Socks5ProxyHandler;
 import io.netty.resolver.dns.DnsNameResolver;
 import io.netty.resolver.dns.DnsNameResolverBuilder;
 
-import java.net.Inet4Address;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.UnknownHostException;
+import java.net.*;
 
 public class TcpClientSession extends TcpSession {
     private static final String IP_REGEX = "\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b";
     private static final Class<? extends Channel> CHANNEL_CLASS;
     private static final EventLoopGroup EVENT_LOOP_GROUP;
+    private static DefaultEventLoopGroup DEFAULT_EVENT_LOOP_GROUP;
 
     static {
         boolean disableNative = System.getProperties().contains("disableNativeEventLoop");
@@ -127,6 +127,80 @@ public class TcpClientSession extends TcpSession {
                     InetSocketAddress remoteAddress = resolveAddress();
                     bootstrap.remoteAddress(remoteAddress);
                     bootstrap.localAddress(bindAddress, bindPort);
+
+                    ChannelFuture future = bootstrap.connect().sync();
+                    if(future.isSuccess()) {
+                        while(!isConnected() && !disconnected) {
+                            try {
+                                Thread.sleep(5);
+                            } catch(InterruptedException e) {
+                            }
+                        }
+                    }
+                } catch(Throwable t) {
+                    exceptionCaught(null, t);
+                }
+            };
+
+            if(wait) {
+                connectTask.run();
+            } else {
+                new Thread(connectTask).start();
+            }
+        } catch(Throwable t) {
+            exceptionCaught(null, t);
+        }
+    }
+
+    public void connectInternal(SocketAddress socketAddress, String clientIp, boolean wait) {
+        if(this.disconnected) {
+            throw new IllegalStateException("Session has already been disconnected.");
+        }
+
+        boolean debug = getFlag(BuiltinFlags.PRINT_DEBUG, false);
+
+        if (DEFAULT_EVENT_LOOP_GROUP == null) {
+            DEFAULT_EVENT_LOOP_GROUP = new DefaultEventLoopGroup();
+        }
+
+        try {
+            final Bootstrap bootstrap = new Bootstrap();
+            bootstrap.channel(LocalChannel.class);
+            bootstrap.handler(new ChannelInitializer<Channel>() {
+                @Override
+                public void initChannel(Channel channel) {
+                    getPacketProtocol().newClientSession(TcpClientSession.this);
+
+                    channel.config().setOption(ChannelOption.IP_TOS, 0x18);
+                    try {
+                        channel.config().setOption(ChannelOption.TCP_NODELAY, true);
+                    } catch (ChannelException e) {
+                        if(debug) {
+                            System.out.println("Exception while trying to set TCP_NODELAY");
+                            e.printStackTrace();
+                        }
+                    }
+
+                    ChannelPipeline pipeline = channel.pipeline();
+
+                    refreshReadTimeoutHandler(channel);
+                    refreshWriteTimeoutHandler(channel);
+
+                    addProxy(pipeline);
+
+                    pipeline.addLast("encryption", new TcpPacketEncryptor(TcpClientSession.this));
+                    pipeline.addLast("sizer", new TcpPacketSizer(TcpClientSession.this));
+                    pipeline.addLast("codec", new TcpPacketCodec(TcpClientSession.this));
+                    pipeline.addLast("manager", TcpClientSession.this);
+
+                    addHAProxySupport(pipeline);
+                }
+            }).group(DEFAULT_EVENT_LOOP_GROUP).option(ChannelOption.CONNECT_TIMEOUT_MILLIS, getConnectTimeout() * 1000);
+
+            Runnable connectTask = () -> {
+                try {
+                    bootstrap.remoteAddress(socketAddress);
+                    //bootstrap.localAddress(SocketUtils.localSocketAddress(new ServerSocket()));
 
                     ChannelFuture future = bootstrap.connect().sync();
                     if(future.isSuccess()) {
