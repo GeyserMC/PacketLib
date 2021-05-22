@@ -1,19 +1,35 @@
-package com.github.steveice10.packetlib.tcp.io;
+package com.github.steveice10.packetlib.io.local;
 
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.*;
-import io.netty.channel.local.LocalChannel;
 import io.netty.util.Attribute;
 import io.netty.util.AttributeKey;
 
-import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 
-public abstract class ChannelWrapper implements Channel {
+public class ChannelWrapper implements Channel {
     protected final Channel source;
+    private volatile SocketAddress remoteAddress;
 
     public ChannelWrapper(Channel channel) {
         this.source = channel;
+    }
+
+    @Override
+    public SocketAddress localAddress() {
+        return source.localAddress();
+    }
+
+    @Override
+    public SocketAddress remoteAddress() {
+        if (remoteAddress == null) {
+            return source.remoteAddress();
+        }
+        return remoteAddress;
+    }
+
+    public void remoteAddress(SocketAddress socketAddress) {
+        remoteAddress = socketAddress;
     }
 
     @Override
@@ -153,7 +169,8 @@ public abstract class ChannelWrapper implements Channel {
 
     @Override
     public Channel read() {
-        return source.read();
+        source.read();
+        return this;
     }
 
     @Override

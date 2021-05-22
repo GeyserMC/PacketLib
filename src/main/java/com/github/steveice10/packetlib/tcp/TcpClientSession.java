@@ -3,6 +3,7 @@ package com.github.steveice10.packetlib.tcp;
 import com.github.steveice10.packetlib.BuiltinFlags;
 import com.github.steveice10.packetlib.ProxyInfo;
 import com.github.steveice10.packetlib.packet.PacketProtocol;
+import com.github.steveice10.packetlib.io.local.LocalChannelWithRemoteAddress;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
@@ -12,7 +13,6 @@ import io.netty.channel.epoll.EpollSocketChannel;
 import io.netty.channel.kqueue.KQueue;
 import io.netty.channel.kqueue.KQueueEventLoopGroup;
 import io.netty.channel.kqueue.KQueueSocketChannel;
-import io.netty.channel.local.LocalChannel;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
@@ -164,10 +164,13 @@ public class TcpClientSession extends TcpSession {
 
         try {
             final Bootstrap bootstrap = new Bootstrap();
-            bootstrap.channel(LocalChannel.class);
+            bootstrap.channel(LocalChannelWithRemoteAddress.class);
             bootstrap.handler(new ChannelInitializer<Channel>() {
                 @Override
                 public void initChannel(Channel channel) {
+                    if (channel instanceof LocalChannelWithRemoteAddress) {
+                        ((LocalChannelWithRemoteAddress) channel).spoofedRemoteAddress(new InetSocketAddress(clientIp, 0));
+                    }
                     getPacketProtocol().newClientSession(TcpClientSession.this);
 
                     channel.config().setOption(ChannelOption.IP_TOS, 0x18);
@@ -199,7 +202,6 @@ public class TcpClientSession extends TcpSession {
             Runnable connectTask = () -> {
                 try {
                     bootstrap.remoteAddress(socketAddress);
-                    //bootstrap.localAddress(SocketUtils.localSocketAddress(new ServerSocket()));
 
                     ChannelFuture future = bootstrap.connect().sync();
                     if(future.isSuccess()) {
