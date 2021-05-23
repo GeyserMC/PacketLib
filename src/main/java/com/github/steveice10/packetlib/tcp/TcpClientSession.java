@@ -37,24 +37,9 @@ import java.net.*;
 
 public class TcpClientSession extends TcpSession {
     private static final String IP_REGEX = "\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b";
-    private static final Class<? extends Channel> CHANNEL_CLASS;
-    private static final EventLoopGroup EVENT_LOOP_GROUP;
+    private static Class<? extends Channel> CHANNEL_CLASS;
+    private static EventLoopGroup EVENT_LOOP_GROUP;
     private static DefaultEventLoopGroup DEFAULT_EVENT_LOOP_GROUP;
-
-    static {
-        boolean disableNative = System.getProperties().contains("disableNativeEventLoop");
-
-        if (!disableNative && Epoll.isAvailable()) {
-            CHANNEL_CLASS = EpollSocketChannel.class;
-            EVENT_LOOP_GROUP = new EpollEventLoopGroup();
-        } else if (!disableNative && KQueue.isAvailable()) {
-            CHANNEL_CLASS = KQueueSocketChannel.class;
-            EVENT_LOOP_GROUP = new KQueueEventLoopGroup();
-        } else {
-            CHANNEL_CLASS = NioSocketChannel.class;
-            EVENT_LOOP_GROUP = new NioEventLoopGroup();
-        }
-    }
 
     private final String bindAddress;
     private final int bindPort;
@@ -86,6 +71,10 @@ public class TcpClientSession extends TcpSession {
         }
 
         boolean debug = getFlag(BuiltinFlags.PRINT_DEBUG, false);
+
+        if (CHANNEL_CLASS == null) {
+            createTcpEventLoopGroup();
+        }
 
         try {
             final Bootstrap bootstrap = new Bootstrap();
@@ -361,5 +350,24 @@ public class TcpClientSession extends TcpSession {
     @Override
     public void disconnect(String reason, Throwable cause) {
         super.disconnect(reason, cause);
+    }
+
+    private static void createTcpEventLoopGroup() {
+        if (CHANNEL_CLASS != null) {
+            return;
+        }
+
+        boolean disableNative = System.getProperties().contains("disableNativeEventLoop");
+
+        if (!disableNative && Epoll.isAvailable()) {
+            CHANNEL_CLASS = EpollSocketChannel.class;
+            EVENT_LOOP_GROUP = new EpollEventLoopGroup();
+        } else if (!disableNative && KQueue.isAvailable()) {
+            CHANNEL_CLASS = KQueueSocketChannel.class;
+            EVENT_LOOP_GROUP = new KQueueEventLoopGroup();
+        } else {
+            CHANNEL_CLASS = NioSocketChannel.class;
+            EVENT_LOOP_GROUP = new NioEventLoopGroup();
+        }
     }
 }
