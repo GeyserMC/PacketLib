@@ -45,6 +45,8 @@ public class TcpClientSession extends TcpSession {
     private final int bindPort;
     private final ProxyInfo proxy;
 
+    private boolean isInternallyConnecting = false;
+
     public TcpClientSession(String host, int port, PacketProtocol protocol) {
         this(host, port, protocol, null);
     }
@@ -69,6 +71,8 @@ public class TcpClientSession extends TcpSession {
         if(this.disconnected) {
             throw new IllegalStateException("Session has already been disconnected.");
         }
+
+        isInternallyConnecting = false;
 
         boolean debug = getFlag(BuiltinFlags.PRINT_DEBUG, false);
 
@@ -145,6 +149,8 @@ public class TcpClientSession extends TcpSession {
             throw new IllegalStateException("Session has already been disconnected.");
         }
 
+        isInternallyConnecting = true;
+
         boolean debug = getFlag(BuiltinFlags.PRINT_DEBUG, false);
 
         if (DEFAULT_EVENT_LOOP_GROUP == null) {
@@ -214,6 +220,10 @@ public class TcpClientSession extends TcpSession {
         } catch(Throwable t) {
             exceptionCaught(null, t);
         }
+    }
+
+    public boolean isInternallyConnecting() {
+        return isInternallyConnecting;
     }
 
     private InetSocketAddress resolveAddress() {
