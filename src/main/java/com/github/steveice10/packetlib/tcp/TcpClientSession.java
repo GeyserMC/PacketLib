@@ -7,12 +7,15 @@ import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
 import io.netty.channel.epoll.Epoll;
+import io.netty.channel.epoll.EpollDatagramChannel;
 import io.netty.channel.epoll.EpollEventLoopGroup;
 import io.netty.channel.epoll.EpollSocketChannel;
 import io.netty.channel.kqueue.KQueue;
+import io.netty.channel.kqueue.KQueueDatagramChannel;
 import io.netty.channel.kqueue.KQueueEventLoopGroup;
 import io.netty.channel.kqueue.KQueueSocketChannel;
 import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.DatagramChannel;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.dns.DefaultDnsQuestion;
@@ -40,6 +43,7 @@ import java.net.UnknownHostException;
 public class TcpClientSession extends TcpSession {
     private static final String IP_REGEX = "\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b";
     private static final Class<? extends Channel> CHANNEL_CLASS;
+    private static final Class<? extends DatagramChannel> DATAGRAM_CHANNEL_CLASS;
     private static final EventLoopGroup EVENT_LOOP_GROUP;
 
     static {
@@ -47,12 +51,15 @@ public class TcpClientSession extends TcpSession {
 
         if (!disableNative && Epoll.isAvailable()) {
             CHANNEL_CLASS = EpollSocketChannel.class;
+            DATAGRAM_CHANNEL_CLASS = EpollDatagramChannel.class;
             EVENT_LOOP_GROUP = new EpollEventLoopGroup();
         } else if (!disableNative && KQueue.isAvailable()) {
             CHANNEL_CLASS = KQueueSocketChannel.class;
+            DATAGRAM_CHANNEL_CLASS = KQueueDatagramChannel.class;
             EVENT_LOOP_GROUP = new KQueueEventLoopGroup();
         } else {
             CHANNEL_CLASS = NioSocketChannel.class;
+            DATAGRAM_CHANNEL_CLASS = NioDatagramChannel.class;
             EVENT_LOOP_GROUP = new NioEventLoopGroup();
         }
     }
@@ -165,7 +172,7 @@ public class TcpClientSession extends TcpSession {
             AddressedEnvelope<DnsResponse, InetSocketAddress> envelope = null;
             try {
                 resolver = new DnsNameResolverBuilder(EVENT_LOOP_GROUP.next())
-                        .channelType(NioDatagramChannel.class)
+                        .channelType(DATAGRAM_CHANNEL_CLASS)
                         .build();
                 envelope = resolver.query(new DefaultDnsQuestion(name, DnsRecordType.SRV)).get();
 
