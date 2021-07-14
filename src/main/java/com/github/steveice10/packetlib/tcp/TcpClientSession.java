@@ -164,12 +164,10 @@ public class TcpClientSession extends TcpSession {
         try {
             final Bootstrap bootstrap = new Bootstrap();
             bootstrap.channel(LocalChannelWithRemoteAddress.class);
-            bootstrap.handler(new ChannelInitializer<Channel>() {
+            bootstrap.handler(new ChannelInitializer<LocalChannelWithRemoteAddress>() {
                 @Override
-                public void initChannel(Channel channel) {
-                    if (channel instanceof LocalChannelWithRemoteAddress) {
-                        ((LocalChannelWithRemoteAddress) channel).spoofedRemoteAddress(new InetSocketAddress(clientIp, 0));
-                    }
+                public void initChannel(LocalChannelWithRemoteAddress channel) {
+                    channel.spoofedRemoteAddress(new InetSocketAddress(clientIp, 0));
                     getPacketProtocol().newClientSession(TcpClientSession.this);
 
                     channel.config().setOption(ChannelOption.IP_TOS, 0x18);
@@ -346,7 +344,12 @@ public class TcpClientSession extends TcpSession {
                 @Override
                 public void channelActive(ChannelHandlerContext ctx) throws Exception {
                     HAProxyProxiedProtocol proxiedProtocol = clientAddress.getAddress() instanceof Inet4Address ? HAProxyProxiedProtocol.TCP4 : HAProxyProxiedProtocol.TCP6;
-                    InetSocketAddress remoteAddress = (InetSocketAddress) ctx.channel().remoteAddress();
+                    InetSocketAddress remoteAddress;
+                    if (ctx.channel().remoteAddress() instanceof InetSocketAddress) {
+                        remoteAddress = (InetSocketAddress) ctx.channel().remoteAddress();
+                    } else {
+                        remoteAddress = new InetSocketAddress(bindAddress, bindPort);
+                    }
                     ctx.channel().writeAndFlush(new HAProxyMessage(
                             HAProxyProtocolVersion.V2, HAProxyCommand.PROXY, proxiedProtocol,
                             clientAddress.getAddress().getHostAddress(), remoteAddress.getAddress().getHostAddress(),
