@@ -46,6 +46,7 @@ public class TcpClientSession extends TcpSession {
     private static Class<? extends DatagramChannel> DATAGRAM_CHANNEL_CLASS;
     private static EventLoopGroup EVENT_LOOP_GROUP;
     private static DefaultEventLoopGroup DEFAULT_EVENT_LOOP_GROUP;
+    private static PreferredDirectByteBufAllocator PREFERRED_DIRECT_BYTE_BUF_ALLOCATOR = null;
 
     private final String bindAddress;
     private final int bindPort;
@@ -197,6 +198,11 @@ public class TcpClientSession extends TcpSession {
                     addHAProxySupport(pipeline);
                 }
             }).group(DEFAULT_EVENT_LOOP_GROUP).option(ChannelOption.CONNECT_TIMEOUT_MILLIS, getConnectTimeout() * 1000);
+
+            boolean onlyUseDirectBuffers = getFlag(BuiltinFlags.USE_ONLY_DIRECT_BUFFERS, false);
+            if (onlyUseDirectBuffers) {
+                bootstrap.option(ChannelOption.ALLOCATOR, getOrCreateDirectByteBufAllocator());
+            }
 
             Runnable connectTask = () -> {
                 try {
@@ -391,5 +397,13 @@ public class TcpClientSession extends TcpSession {
             DATAGRAM_CHANNEL_CLASS = NioDatagramChannel.class;
             EVENT_LOOP_GROUP = new NioEventLoopGroup();
         }
+    }
+
+    private static PreferredDirectByteBufAllocator getOrCreateDirectByteBufAllocator() {
+        if (PREFERRED_DIRECT_BYTE_BUF_ALLOCATOR == null) {
+            PREFERRED_DIRECT_BYTE_BUF_ALLOCATOR = new PreferredDirectByteBufAllocator();
+            PREFERRED_DIRECT_BYTE_BUF_ALLOCATOR.updateAllocator(ByteBufAllocator.DEFAULT);
+        }
+        return PREFERRED_DIRECT_BYTE_BUF_ALLOCATOR;
     }
 }
