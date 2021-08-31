@@ -48,7 +48,6 @@ public class TcpClientSession extends TcpSession {
     private static EventLoopGroup EVENT_LOOP_GROUP;
     private static DefaultEventLoopGroup DEFAULT_EVENT_LOOP_GROUP;
     private static PreferredDirectByteBufAllocator PREFERRED_DIRECT_BYTE_BUF_ALLOCATOR = null;
-    private static final DefaultThreadFactory THREAD_FACTORY = new DefaultThreadFactory("Geyser Java packet thread", Thread.MAX_PRIORITY);
 
     private final String bindAddress;
     private final int bindPort;
@@ -147,7 +146,7 @@ public class TcpClientSession extends TcpSession {
         boolean debug = getFlag(BuiltinFlags.PRINT_DEBUG, false);
 
         if (DEFAULT_EVENT_LOOP_GROUP == null) {
-            DEFAULT_EVENT_LOOP_GROUP = new DefaultEventLoopGroup(0, THREAD_FACTORY);
+            DEFAULT_EVENT_LOOP_GROUP = new DefaultEventLoopGroup();
         }
 
         try {
@@ -357,15 +356,15 @@ public class TcpClientSession extends TcpSession {
         if (!disableNative && Epoll.isAvailable()) {
             CHANNEL_CLASS = EpollSocketChannel.class;
             DATAGRAM_CHANNEL_CLASS = EpollDatagramChannel.class;
-            EVENT_LOOP_GROUP = new EpollEventLoopGroup(0, THREAD_FACTORY);
+            EVENT_LOOP_GROUP = new EpollEventLoopGroup();
         } else if (!disableNative && KQueue.isAvailable()) {
             CHANNEL_CLASS = KQueueSocketChannel.class;
             DATAGRAM_CHANNEL_CLASS = KQueueDatagramChannel.class;
-            EVENT_LOOP_GROUP = new KQueueEventLoopGroup(0, THREAD_FACTORY);
+            EVENT_LOOP_GROUP = new KQueueEventLoopGroup();
         } else {
             CHANNEL_CLASS = NioSocketChannel.class;
             DATAGRAM_CHANNEL_CLASS = NioDatagramChannel.class;
-            EVENT_LOOP_GROUP = new NioEventLoopGroup(0, THREAD_FACTORY);
+            EVENT_LOOP_GROUP = new NioEventLoopGroup();
         }
     }
 
