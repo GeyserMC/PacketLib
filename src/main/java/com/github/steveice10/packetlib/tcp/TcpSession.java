@@ -36,7 +36,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 public abstract class TcpSession extends SimpleChannelInboundHandler<Packet> implements Session {
     protected String host;
     protected int port;
-    private PacketProtocol protocol;
+    private final PacketProtocol protocol;
 
     private int compressionThreshold = -1;
     private int connectTimeout = 30;
@@ -99,12 +99,12 @@ public abstract class TcpSession extends SimpleChannelInboundHandler<Packet> imp
         return this.flags.containsKey(key);
     }
 
-    @SuppressWarnings("unchecked")
     @Override
     public <T> T getFlag(String key) {
         return this.getFlag(key, null);
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     public <T> T getFlag(String key, T def) {
         Object value = this.flags.get(key);
@@ -249,7 +249,7 @@ public abstract class TcpSession extends SimpleChannelInboundHandler<Packet> imp
             this.callEvent(new DisconnectedEvent(this, reason != null ? reason : "Connection closed.", cause));
         }
 
-        this.channel = null;
+        //this.channel = null; // Geyser - this causes more problems than it's worth
     }
 
     protected void refreshReadTimeoutHandler() {

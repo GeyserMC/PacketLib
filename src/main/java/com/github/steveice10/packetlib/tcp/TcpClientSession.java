@@ -37,6 +37,7 @@ import io.netty.handler.proxy.Socks4ProxyHandler;
 import io.netty.handler.proxy.Socks5ProxyHandler;
 import io.netty.resolver.dns.DnsNameResolver;
 import io.netty.resolver.dns.DnsNameResolverBuilder;
+import io.netty.util.concurrent.DefaultThreadFactory;
 
 import java.net.*;
 
@@ -47,6 +48,7 @@ public class TcpClientSession extends TcpSession {
     private static EventLoopGroup EVENT_LOOP_GROUP;
     private static DefaultEventLoopGroup DEFAULT_EVENT_LOOP_GROUP;
     private static PreferredDirectByteBufAllocator PREFERRED_DIRECT_BYTE_BUF_ALLOCATOR = null;
+    private static final DefaultThreadFactory THREAD_FACTORY = new DefaultThreadFactory("Geyser Java packet thread", Thread.MAX_PRIORITY);
 
     private final String bindAddress;
     private final int bindPort;
@@ -121,37 +123,21 @@ public class TcpClientSession extends TcpSession {
                 }
             }).group(EVENT_LOOP_GROUP).option(ChannelOption.CONNECT_TIMEOUT_MILLIS, getConnectTimeout() * 1000);
 
-            Runnable connectTask = () -> {
-                try {
-                    InetSocketAddress remoteAddress = resolveAddress();
-                    bootstrap.remoteAddress(remoteAddress);
-                    bootstrap.localAddress(bindAddress, bindPort);
+            InetSocketAddress remoteAddress = resolveAddress();
+            bootstrap.remoteAddress(remoteAddress);
+            bootstrap.localAddress(bindAddress, bindPort);
 
-                    ChannelFuture future = bootstrap.connect().sync();
-                    if(future.isSuccess()) {
-                        while(!isConnected() && !disconnected) {
-                            try {
-                                Thread.sleep(5);
-                            } catch(InterruptedException e) {
-                            }
-                        }
-                    }
-                } catch(Throwable t) {
-                    exceptionCaught(null, t);
+            bootstrap.connect().addListener((future) -> {
+                if (!future.isSuccess()) {
+                    exceptionCaught(null, future.cause());
                 }
-            };
-
-            if(wait) {
-                connectTask.run();
-            } else {
-                new Thread(connectTask).start();
-            }
+            });
         } catch(Throwable t) {
             exceptionCaught(null, t);
         }
     }
 
-    public void connectInternal(SocketAddress socketAddress, String clientIp, boolean wait) {
+    public void connectInternal(SocketAddress socketAddress, String clientIp) {
         if(this.disconnected) {
             throw new IllegalStateException("Session has already been disconnected.");
         }
@@ -161,7 +147,7 @@ public class TcpClientSession extends TcpSession {
         boolean debug = getFlag(BuiltinFlags.PRINT_DEBUG, false);
 
         if (DEFAULT_EVENT_LOOP_GROUP == null) {
-            DEFAULT_EVENT_LOOP_GROUP = new DefaultEventLoopGroup();
+            DEFAULT_EVENT_LOOP_GROUP = new DefaultEventLoopGroup(0, THREAD_FACTORY);
         }
 
         try {
@@ -204,29 +190,13 @@ public class TcpClientSession extends TcpSession {
                 bootstrap.option(ChannelOption.ALLOCATOR, getOrCreateDirectByteBufAllocator());
             }
 
-            Runnable connectTask = () -> {
-                try {
-                    bootstrap.remoteAddress(socketAddress);
+            bootstrap.remoteAddress(socketAddress);
 
-                    ChannelFuture future = bootstrap.connect().sync();
-                    if(future.isSuccess()) {
-                        while(!isConnected() && !disconnected) {
-                            try {
-                                Thread.sleep(5);
-                            } catch(InterruptedException e) {
-                            }
-                        }
-                    }
-                } catch(Throwable t) {
-                    exceptionCaught(null, t);
+            bootstrap.connect().addListener((future) -> {
+                if (!future.isSuccess()) {
+                    exceptionCaught(null, future.cause());
                 }
-            };
-
-            if(wait) {
-                connectTask.run();
-            } else {
-                new Thread(connectTask).start();
-            }
+            });
         } catch(Throwable t) {
             exceptionCaught(null, t);
         }
@@ -387,15 +357,15 @@ public class TcpClientSession extends TcpSession {
         if (!disableNative && Epoll.isAvailable()) {
             CHANNEL_CLASS = EpollSocketChannel.class;
             DATAGRAM_CHANNEL_CLASS = EpollDatagramChannel.class;
-            EVENT_LOOP_GROUP = new EpollEventLoopGroup();
+            EVENT_LOOP_GROUP = new EpollEventLoopGroup(0, THREAD_FACTORY);
         } else if (!disableNative && KQueue.isAvailable()) {
             CHANNEL_CLASS = KQueueSocketChannel.class;
             DATAGRAM_CHANNEL_CLASS = KQueueDatagramChannel.class;
-            EVENT_LOOP_GROUP = new KQueueEventLoopGroup();
+            EVENT_LOOP_GROUP = new KQueueEventLoopGroup(0, THREAD_FACTORY);
         } else {
             CHANNEL_CLASS = NioSocketChannel.class;
             DATAGRAM_CHANNEL_CLASS = NioDatagramChannel.class;
-            EVENT_LOOP_GROUP = new NioEventLoopGroup();
+            EVENT_LOOP_GROUP = new NioEventLoopGroup(0, THREAD_FACTORY);
         }
     }
 
