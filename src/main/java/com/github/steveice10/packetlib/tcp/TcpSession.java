@@ -256,6 +256,7 @@ public abstract class TcpSession extends SimpleChannelInboundHandler<Packet> imp
             this.channel.flush().close().addListener((ChannelFutureListener) future ->
                     callEvent(new DisconnectedEvent(TcpSession.this,
                             reason != null ? reason : "Connection closed.", cause)));
+            this.channel.eventLoop().shutdownGracefully();
         } else {
             this.callEvent(new DisconnectedEvent(this, reason != null ? reason : "Connection closed.", cause));
         }
