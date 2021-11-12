@@ -4,7 +4,6 @@ import com.github.steveice10.packetlib.BuiltinFlags;
 import com.github.steveice10.packetlib.ProxyInfo;
 import com.github.steveice10.packetlib.helper.TransportHelper;
 import com.github.steveice10.packetlib.packet.PacketProtocol;
-import com.github.steveice10.packetlib.io.local.LocalChannelWithRemoteAddress;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.AddressedEnvelope;
@@ -20,14 +19,12 @@ import io.netty.channel.epoll.EpollEventLoopGroup;
 import io.netty.channel.epoll.EpollSocketChannel;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.DatagramChannel;
-import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.*;
 import io.netty.channel.kqueue.KQueueDatagramChannel;
 import io.netty.channel.kqueue.KQueueEventLoopGroup;
 import io.netty.channel.kqueue.KQueueSocketChannel;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
-import io.netty.channel.unix.PreferredDirectByteBufAllocator;
 import io.netty.handler.codec.dns.DefaultDnsQuestion;
 import io.netty.handler.codec.dns.DefaultDnsRawRecord;
 import io.netty.handler.codec.dns.DefaultDnsRecordDecoder;
@@ -54,14 +51,10 @@ public class TcpClientSession extends TcpSession {
     private static Class<? extends Channel> CHANNEL_CLASS;
     private static Class<? extends DatagramChannel> DATAGRAM_CHANNEL_CLASS;
     private static EventLoopGroup EVENT_LOOP_GROUP;
-    private static DefaultEventLoopGroup DEFAULT_EVENT_LOOP_GROUP;
-    private static PreferredDirectByteBufAllocator PREFERRED_DIRECT_BYTE_BUF_ALLOCATOR = null;
 
     private final String bindAddress;
     private final int bindPort;
     private final ProxyInfo proxy;
-
-    private boolean isInternallyConnecting = false;
 
     public TcpClientSession(String host, int port, PacketProtocol protocol) {
         this(host, port, protocol, null);
@@ -87,8 +80,6 @@ public class TcpClientSession extends TcpSession {
         if(this.disconnected) {
             throw new IllegalStateException("Session has already been disconnected.");
         }
-
-        isInternallyConnecting = false;
 
         boolean debug = getFlag(BuiltinFlags.PRINT_DEBUG, false);
 
@@ -144,80 +135,11 @@ public class TcpClientSession extends TcpSession {
         }
     }
 
-    public void connectInternal(SocketAddress socketAddress, String clientIp) {
-        if(this.disconnected) {
-            throw new IllegalStateException("Session has already been disconnected.");
-        }
-
-        isInternallyConnecting = true;
-
-        boolean debug = getFlag(BuiltinFlags.PRINT_DEBUG, false);
-
-        if (DEFAULT_EVENT_LOOP_GROUP == null) {
-            DEFAULT_EVENT_LOOP_GROUP = new DefaultEventLoopGroup();
-        }
-
-        try {
-            final Bootstrap bootstrap = new Bootstrap();
-            bootstrap.channel(LocalChannelWithRemoteAddress.class);
-            bootstrap.handler(new ChannelInitializer<LocalChannelWithRemoteAddress>() {
-                @Override
-                public void initChannel(LocalChannelWithRemoteAddress channel) {
-                    channel.spoofedRemoteAddress(new InetSocketAddress(clientIp, 0));
-                    getPacketProtocol().newClientSession(TcpClientSession.this);
-
-                    channel.config().setOption(ChannelOption.IP_TOS, 0x18);
-                    try {
-                        channel.config().setOption(ChannelOption.TCP_NODELAY, true);
-                    } catch (ChannelException e) {
-                        if(debug) {
-                            System.out.println("Exception while trying to set TCP_NODELAY");
-                            e.printStackTrace();
-                        }
-                    }
-
-                    ChannelPipeline pipeline = channel.pipeline();
-
-                    refreshReadTimeoutHandler(channel);
-                    refreshWriteTimeoutHandler(channel);
-
-                    addProxy(pipeline);
-
-                    pipeline.addLast("encryption", new TcpPacketEncryptor(TcpClientSession.this));
-                    pipeline.addLast("sizer", new TcpPacketSizer(TcpClientSession.this));
-                    pipeline.addLast("codec", new TcpPacketCodec(TcpClientSession.this));
-                    pipeline.addLast("manager", TcpClientSession.this);
-
-                    addHAProxySupport(pipeline);
-                }
-            }).group(DEFAULT_EVENT_LOOP_GROUP).option(ChannelOption.CONNECT_TIMEOUT_MILLIS, getConnectTimeout() * 1000);
-
-            boolean onlyUseDirectBuffers = getFlag(BuiltinFlags.USE_ONLY_DIRECT_BUFFERS, false);
-            if (onlyUseDirectBuffers) {
-                bootstrap.option(ChannelOption.ALLOCATOR, getOrCreateDirectByteBufAllocator());
-            }
-
-            bootstrap.remoteAddress(socketAddress);
-
-            bootstrap.connect().addListener((future) -> {
-                if (!future.isSuccess()) {
-                    exceptionCaught(null, future.cause());
-                }
-            });
-        } catch(Throwable t) {
-            exceptionCaught(null, t);
-        }
-    }
-
-    public boolean isInternallyConnecting() {
-        return isInternallyConnecting;
-    }
-
     private InetSocketAddress resolveAddress() {
         boolean debug = getFlag(BuiltinFlags.PRINT_DEBUG, false);
 
         String name = this.getPacketProtocol().getSRVRecordPrefix() + "._tcp." + this.getHost();
-        if(debug) {
+        if (debug) {
             System.out.println("[PacketLib] Attempting SRV lookup for \"" + name + "\".");
         }
 
@@ -231,15 +153,15 @@ public class TcpClientSession extends TcpSession {
                 envelope = resolver.query(new DefaultDnsQuestion(name, DnsRecordType.SRV)).get();
 
                 DnsResponse response = envelope.content();
-                if(response.count(DnsSection.ANSWER) > 0) {
+                if (response.count(DnsSection.ANSWER) > 0) {
                     DefaultDnsRawRecord record = response.recordAt(DnsSection.ANSWER, 0);
-                    if(record.type() == DnsRecordType.SRV) {
+                    if (record.type() == DnsRecordType.SRV) {
                         ByteBuf buf = record.content();
                         buf.skipBytes(4); // Skip priority and weight.
 
                         int port = buf.readUnsignedShort();
                         String host = DefaultDnsRecordDecoder.decodeName(buf);
-                        if(host.endsWith(".")) {
+                        if (host.endsWith(".")) {
                             host = host.substring(0, host.length() - 1);
                         }
 
@@ -249,23 +171,23 @@ public class TcpClientSession extends TcpSession {
 
                         this.host = host;
                         this.port = port;
-                    } else if(debug) {
+                    } else if (debug) {
                         System.out.println("[PacketLib] Received non-SRV record in response.");
                     }
-                } else if(debug) {
+                } else if (debug) {
                     System.out.println("[PacketLib] No SRV record found.");
                 }
             } catch(Exception e) {
-                if(debug) {
+                if (debug) {
                     System.out.println("[PacketLib] Failed to resolve SRV record.");
                     e.printStackTrace();
                 }
             } finally {
-                if(envelope != null) {
+                if (envelope != null) {
                     envelope.release();
                 }
 
-                if(resolver != null) {
+                if (resolver != null) {
                     resolver.close();
                 }
             }
@@ -293,7 +215,7 @@ public class TcpClientSession extends TcpSession {
         if(proxy != null) {
             switch(proxy.getType()) {
                 case HTTP:
-                    if(proxy.isAuthenticated()) {
+                    if (proxy.isAuthenticated()) {
                         pipeline.addFirst("proxy", new HttpProxyHandler(proxy.getAddress(), proxy.getUsername(), proxy.getPassword()));
                     } else {
                         pipeline.addFirst("proxy", new HttpProxyHandler(proxy.getAddress()));
@@ -301,7 +223,7 @@ public class TcpClientSession extends TcpSession {
 
                     break;
                 case SOCKS4:
-                    if(proxy.isAuthenticated()) {
+                    if (proxy.isAuthenticated()) {
                         pipeline.addFirst("proxy", new Socks4ProxyHandler(proxy.getAddress(), proxy.getUsername()));
                     } else {
                         pipeline.addFirst("proxy", new Socks4ProxyHandler(proxy.getAddress()));
@@ -309,7 +231,7 @@ public class TcpClientSession extends TcpSession {
 
                     break;
                 case SOCKS5:
-                    if(proxy.isAuthenticated()) {
+                    if (proxy.isAuthenticated()) {
                         pipeline.addFirst("proxy", new Socks5ProxyHandler(proxy.getAddress(), proxy.getUsername(), proxy.getPassword()));
                     } else {
                         pipeline.addFirst("proxy", new Socks5ProxyHandler(proxy.getAddress()));
@@ -329,12 +251,7 @@ public class TcpClientSession extends TcpSession {
                 @Override
                 public void channelActive(ChannelHandlerContext ctx) throws Exception {
                     HAProxyProxiedProtocol proxiedProtocol = clientAddress.getAddress() instanceof Inet4Address ? HAProxyProxiedProtocol.TCP4 : HAProxyProxiedProtocol.TCP6;
-                    InetSocketAddress remoteAddress;
-                    if (ctx.channel().remoteAddress() instanceof InetSocketAddress) {
-                        remoteAddress = (InetSocketAddress) ctx.channel().remoteAddress();
-                    } else {
-                        remoteAddress = new InetSocketAddress(bindAddress, bindPort);
-                    }
+                    InetSocketAddress remoteAddress = (InetSocketAddress) ctx.channel().remoteAddress();
                     ctx.channel().writeAndFlush(new HAProxyMessage(
                             HAProxyProtocolVersion.V2, HAProxyCommand.PROXY, proxiedProtocol,
                             clientAddress.getAddress().getHostAddress(), remoteAddress.getAddress().getHostAddress(),
@@ -380,13 +297,5 @@ public class TcpClientSession extends TcpSession {
                 DATAGRAM_CHANNEL_CLASS = NioDatagramChannel.class;
                 break;
         }
-    }
-
-    private static PreferredDirectByteBufAllocator getOrCreateDirectByteBufAllocator() {
-        if (PREFERRED_DIRECT_BYTE_BUF_ALLOCATOR == null) {
-            PREFERRED_DIRECT_BYTE_BUF_ALLOCATOR = new PreferredDirectByteBufAllocator();
-            PREFERRED_DIRECT_BYTE_BUF_ALLOCATOR.updateAllocator(ByteBufAllocator.DEFAULT);
-        }
-        return PREFERRED_DIRECT_BYTE_BUF_ALLOCATOR;
     }
 }

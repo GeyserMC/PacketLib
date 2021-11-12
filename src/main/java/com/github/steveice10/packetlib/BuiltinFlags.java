@@ -18,11 +18,6 @@ public class BuiltinFlags {
      */
     public static final String ATTEMPT_SRV_RESOLVE = "attempt-srv-resolve";
 
-    /**
-     * For Geyser usage, to fix a bug with Bungee native ZLib compression.
-     */
-    public static final String USE_ONLY_DIRECT_BUFFERS = "use-only-direct-buffers";
-
     private BuiltinFlags() {
     }
 }
